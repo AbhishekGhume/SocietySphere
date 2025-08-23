@@ -111,7 +111,7 @@ class _SignupScreen extends State<SignupScreen> {
     return Column(
       children: [
         const Text(
-          'Society Manager',
+          'SocietySphere',
           style: TextStyle(
             fontSize: 32,
             fontWeight: FontWeight.bold,

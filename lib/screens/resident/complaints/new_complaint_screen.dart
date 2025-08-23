@@ -1,4 +1,4 @@
-// lib/screens/new_complaint_screen.dart
+// lib/screens/resident/complaints/new_complaint_screen.dart
 
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -9,7 +9,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 
 class NewComplaintScreen extends StatefulWidget {
-  const NewComplaintScreen({super.key});
+  final String? complaintId; // Optional ID for editing
+
+  const NewComplaintScreen({super.key, this.complaintId});
 
   @override
   State<NewComplaintScreen> createState() => _NewComplaintScreenState();
@@ -20,17 +22,44 @@ class _NewComplaintScreenState extends State<NewComplaintScreen> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
 
-  // State for new fields
   String? _selectedCategory;
   String _selectedPriority = 'Medium';
   File? _imageFile;
-
+  String? _existingImageUrl;
   bool _isLoading = false;
+  bool _isEditMode = false;
 
   final List<String> _categories = [
     'Maintenance', 'Security', 'Noise Complaint', 'Parking', 'Cleanliness', 'Utilities', 'Other'
   ];
   final List<String> _priorities = ['Low', 'Medium', 'High'];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.complaintId != null) {
+      _isEditMode = true;
+      _loadComplaintData();
+    }
+  }
+
+  Future<void> _loadComplaintData() async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection('complaints').doc(widget.complaintId).get();
+      if (doc.exists) {
+        final data = doc.data()!;
+        _titleController.text = data['title'] ?? '';
+        _descriptionController.text = data['description'] ?? '';
+        setState(() {
+          _selectedCategory = data['category'];
+          _selectedPriority = data['priority'] ?? 'Medium';
+          _existingImageUrl = data['imageUrl'];
+        });
+      }
+    } catch (e) {
+      _showSnackBar('Failed to load complaint data: $e', Colors.red);
+    }
+  }
 
   @override
   void dispose() {
@@ -39,13 +68,8 @@ class _NewComplaintScreenState extends State<NewComplaintScreen> {
     super.dispose();
   }
 
-  // --- Image Picking Logic ---
   Future<void> _pickImage() async {
-    final pickedImage = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 70,
-    );
-
+    final pickedImage = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70);
     if (pickedImage != null) {
       setState(() {
         _imageFile = File(pickedImage.path);
@@ -53,12 +77,8 @@ class _NewComplaintScreenState extends State<NewComplaintScreen> {
     }
   }
 
-  // --- Submission Logic ---
-  Future<void> _submitComplaint() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
+  Future<void> _saveComplaint() async {
+    if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
     final user = FirebaseAuth.instance.currentUser;
@@ -69,49 +89,48 @@ class _NewComplaintScreenState extends State<NewComplaintScreen> {
     }
 
     try {
-      String? imageUrl;
-      // 1. Upload image if one was selected
+      String? imageUrl = _existingImageUrl;
       if (_imageFile != null) {
         final fileName = path.basename(_imageFile!.path);
-        final storageRef = FirebaseStorage.instance
-            .ref()
-            .child('complaint_images')
-            .child('${DateTime.now().toIso8601String()}_$fileName');
-
+        final storageRef = FirebaseStorage.instance.ref().child('complaint_images').child('${DateTime.now().toIso8601String()}_$fileName');
         await storageRef.putFile(_imageFile!);
         imageUrl = await storageRef.getDownloadURL();
       }
 
-      // 2. Fetch user details
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      final userData = userDoc.data();
-
-      // 3. Save complaint to Firestore
-      await FirebaseFirestore.instance.collection('complaints').add({
+      final complaintData = {
         'title': _titleController.text.trim(),
         'description': _descriptionController.text.trim(),
         'category': _selectedCategory,
         'priority': _selectedPriority,
-        'status': 'Pending',
-        'imageUrl': imageUrl, // Can be null
-        'userId': user.uid,
-        'userName': '${userData?['firstName'] ?? ''} ${userData?['lastName'] ?? ''}'.trim(),
-        'flat': userData?['flat'] ?? 'N/A',
-        'createdAt': Timestamp.now(),
+        'imageUrl': imageUrl,
         'updatedAt': Timestamp.now(),
-        'adminResponse': null,
-      });
+      };
 
-      _showSnackBar('Complaint submitted successfully!', Colors.green);
-      if (mounted) {
-        Navigator.pop(context);
+      if (_isEditMode) {
+        // --- UPDATE LOGIC ---
+        await FirebaseFirestore.instance.collection('complaints').doc(widget.complaintId).update(complaintData);
+        _showSnackBar('Complaint updated successfully!', Colors.green);
+      } else {
+        // --- CREATE LOGIC ---
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final userData = userDoc.data();
+        await FirebaseFirestore.instance.collection('complaints').add({
+          ...complaintData,
+          'status': 'Pending',
+          'userId': user.uid,
+          'userName': '${userData?['firstName'] ?? ''} ${userData?['lastName'] ?? ''}'.trim(),
+          'flat': userData?['flat'] ?? 'N/A',
+          'createdAt': Timestamp.now(),
+          'adminResponse': null,
+        });
+        _showSnackBar('Complaint submitted successfully!', Colors.green);
       }
+
+      if (mounted) Navigator.of(context).pop();
     } catch (e) {
-      _showSnackBar('Failed to submit complaint: $e', Colors.red);
+      _showSnackBar('Failed to save complaint: $e', Colors.red);
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -124,29 +143,17 @@ class _NewComplaintScreenState extends State<NewComplaintScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Create Complaint'),
+        title: Text(_isEditMode ? 'Edit Complaint' : 'Create Complaint'),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 1,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            _buildComplaintForm(),
-            const SizedBox(height: 24),
-            _buildTipsCard(),
-          ],
-        ),
+        child: _buildComplaintForm(),
       ),
     );
   }
-
-  // --- UI Builder Widgets ---
 
   Widget _buildComplaintForm() {
     return Card(
@@ -159,12 +166,9 @@ class _NewComplaintScreenState extends State<NewComplaintScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Submit a New Complaint', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87)),
-              const SizedBox(height: 8),
-              Text('Describe your issue in detail so we can help you quickly.', style: TextStyle(color: Colors.grey[600])),
+              Text(_isEditMode ? 'Update Your Issue' : 'Submit a New Complaint', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87)),
               const SizedBox(height: 24),
 
-              // Title, Category, Priority Fields
               _buildTextFormField(controller: _titleController, label: 'Complaint Title *', hint: 'Brief description of the issue'),
               const SizedBox(height: 20),
               _buildDropdownField(value: _selectedCategory, items: _categories, label: 'Category *', hint: 'Select complaint category', onChanged: (val) => setState(() => _selectedCategory = val)),
@@ -174,35 +178,23 @@ class _NewComplaintScreenState extends State<NewComplaintScreen> {
               _buildTextFormField(controller: _descriptionController, label: 'Detailed Description *', hint: 'Provide details about the issue...', maxLines: 5),
               const SizedBox(height: 20),
 
-              // Photo Attachment
-              const Text(
-                'Attach Photo (Optional)',
-                style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black87), // FIX: Added color
-              ),
+              const Text('Attach Photo (Optional)', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
               const SizedBox(height: 8),
               _buildPhotoPicker(),
               const SizedBox(height: 32),
 
-              // Action Buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _saveComplaint,
+                  icon: _isLoading ? const SizedBox.shrink() : Icon(_isEditMode ? Icons.update : Icons.send, size: 18),
+                  label: _isLoading ? const CircularProgressIndicator(color: Colors.white) : Text(_isEditMode ? 'Update Complaint' : 'Submit Complaint'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF57C00),
+                    foregroundColor: Colors.white,
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _isLoading ? null : _submitComplaint,
-                      icon: _isLoading ? const SizedBox.shrink() : const Icon(Icons.send, size: 18),
-                      label: _isLoading ? const CircularProgressIndicator(strokeWidth: 2, color: Colors.white) : const Text('Submit Complaint'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFF57C00),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ],
           ),
@@ -215,19 +207,15 @@ class _NewComplaintScreenState extends State<NewComplaintScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87), // FIX: Added color to the label
-        ),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
         const SizedBox(height: 8),
         TextFormField(
           controller: controller,
-          style: const TextStyle(color: Colors.black87), // This is for the typed text
+          style: const TextStyle(color: Colors.black87),
           maxLines: maxLines,
           decoration: InputDecoration(
             hintText: hint,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           ),
           validator: (value) {
             if (value == null || value.trim().isEmpty) return 'This field is required.';
@@ -242,70 +230,79 @@ class _NewComplaintScreenState extends State<NewComplaintScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87), // FIX: Added color to the label
-        ),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           value: value,
-          isExpanded: true,
-          style: const TextStyle(color: Colors.black87), // Style for selected item
-          decoration: InputDecoration(
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          ),
-          hint: Text(hint, style: TextStyle(color: Colors.grey[600])),
-          items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
+          items: items.map((item) => DropdownMenuItem(value: item, child: Text(item, style: const TextStyle(color: Colors.black87)))).toList(),
           onChanged: onChanged,
-          validator: (value) => value == null ? 'Please select an option.' : null,
+          decoration: InputDecoration(hintText: hint, border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
+          validator: (value) => value == null ? 'Please select a category.' : null,
         ),
       ],
     );
   }
 
   Widget _buildPriorityDropdown() {
-    const priorityMap = {
-      'Low': 'Not urgent',
-      'Medium': 'Moderate urgency',
-      'High': 'Urgent attention needed'
-    };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Priority Level *',
-          style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black87), // FIX: Added color to the label
-        ),
+        const Text('Priority Level *', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
           value: _selectedPriority,
-          style: const TextStyle(color: Colors.black87), // Style for selected item
-          decoration: InputDecoration(
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          ),
-          items: _priorities.map((p) => DropdownMenuItem(value: p, child: Text('$p - ${priorityMap[p]}'))).toList(),
+          items: _priorities.map((p) => DropdownMenuItem(value: p, child: Text(p, style: const TextStyle(color: Colors.black87)))).toList(),
           onChanged: (val) => setState(() => _selectedPriority = val!),
+          decoration: InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
         ),
       ],
     );
   }
 
   Widget _buildPhotoPicker() {
-    return Container(
-      height: 150,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300, style: BorderStyle.solid),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: _imageFile != null
-          ? ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image.file(_imageFile!, fit: BoxFit.cover),
-      )
-          : Center(
+    Widget imagePreview;
+    if (_imageFile != null) {
+      imagePreview = Stack(
+        children: [
+          Image.file(_imageFile!, fit: BoxFit.cover, width: double.infinity, height: double.infinity),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: GestureDetector(
+              onTap: () => setState(() => _imageFile = null),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 20),
+              ),
+            ),
+          ),
+        ],
+      );
+    } else if (_existingImageUrl != null) {
+      imagePreview = Stack(
+        children: [
+          Image.network(_existingImageUrl!, fit: BoxFit.cover, width: double.infinity, height: double.infinity),
+          Positioned(
+            top: 8,
+            right: 8,
+            child: GestureDetector(
+              onTap: () => setState(() => _existingImageUrl = null),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 20),
+              ),
+            ),
+          ),
+        ],
+      );
+    } else {
+      imagePreview = Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -318,45 +315,20 @@ class _NewComplaintScreenState extends State<NewComplaintScreen> {
             )
           ],
         ),
-      ),
-    );
-  }
+      );
+    }
 
-  Widget _buildTipsCard() {
-    return Card(
-      elevation: 2,
-      color: Colors.amber[50],
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.amber.shade200),
+    return Container(
+      height: 150,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(8),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.lightbulb_outline, color: Colors.amber.shade800),
-                const SizedBox(width: 8),
-                Text('Tips for Better Complaints', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.amber.shade900)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _buildTip('- Be specific about the location and time of the issue.'),
-            _buildTip('- Include photos if they help explain the problem.'),
-            _buildTip('- Mention if it\'s a recurring issue.'),
-            _buildTip('- Set an appropriate priority level.'),
-          ],
-        ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: imagePreview,
       ),
-    );
-  }
-
-  Widget _buildTip(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4.0),
-      child: Text(text, style: TextStyle(color: Colors.brown[800])),
     );
   }
 }

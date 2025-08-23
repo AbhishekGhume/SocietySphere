@@ -409,7 +409,7 @@ class _SplashScreenState extends State<SplashScreen>
             colors: [Colors.white, Color(0xFFE3F2FD)],
           ).createShader(bounds),
           child: const Text(
-            'Society Manager',
+            'SocietySphere',
             style: TextStyle(
               fontSize: 34,
               fontWeight: FontWeight.bold,

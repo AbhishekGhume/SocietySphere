@@ -184,7 +184,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return Column(
       children: [
         const Text(
-          'Society Manager',
+          'SocietySphere',
           style: TextStyle(
             fontSize: 32,
             fontWeight: FontWeight.bold,
