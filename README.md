@@ -19,7 +19,7 @@ SocietySphere is a full-featured mobile application built with Flutter and Fireb
 * **Dashboard:** A quick overview of pending payments and recent notices.
 * **Notice Board:** View all society notices with priority levels.
 * **Complaint Management:** File new complaints with categories, priority, and photo attachments. Track the status and view admin responses.
-* **Online Payments:** View all pending maintenance bills and pay securely using Razorpay.
+* **Online Payments:** View all pending maintenance bills and pay securely.
 * **Payment History:** Access a complete history of all past payments.
 
 ### 🔑 For Admins
