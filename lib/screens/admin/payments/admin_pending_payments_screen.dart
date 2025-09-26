@@ -220,6 +220,7 @@ class _ResidentPaymentsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     num totalDue = payments.fold(0, (sum, item) => sum + (item['amount'] ?? 0));
+    final userName = residentData['userName'] as String? ?? 'U';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -234,7 +235,8 @@ class _ResidentPaymentsCard extends StatelessWidget {
         leading: CircleAvatar(
           backgroundColor: Colors.blue,
           child: Text(
-            residentData['userName']?[0]?.toUpperCase() ?? 'U',
+            // FIX: Safely get the first character
+            userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -242,7 +244,7 @@ class _ResidentPaymentsCard extends StatelessWidget {
           ),
         ),
         title: Text(
-          residentData['userName'] ?? 'Unknown Resident',
+          userName,
           style: const TextStyle(
             fontWeight: FontWeight.bold,
             color: Colors.black,
@@ -304,3 +306,4 @@ class _ResidentPaymentsCard extends StatelessWidget {
     return 'N/A';
   }
 }
+
