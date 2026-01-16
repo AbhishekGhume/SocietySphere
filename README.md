@@ -11,6 +11,15 @@ SocietySphere is a full-featured mobile application built with Flutter and Fireb
 
 ---
 
+## 📱 App Navigation Flow
+
+Below is the complete architectural flow of the application, showing how users navigate between screens based on their roles.
+
+<img width="3137" height="1790" alt="diagram-export-1-16-2026-12_26_51-AM" src="https://github.com/user-attachments/assets/fcf1cc25-8c0c-47e4-9c62-5a41d7add673" />
+
+
+---
+
 ## ✨ Features
 
 ### 👨‍👩‍👧 For Residents
